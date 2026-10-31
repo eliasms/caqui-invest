@@ -1,60 +1,90 @@
 <!--
 Sync Impact Report
-- Version change: 0.0.0 (template) → 1.0.0
+- Version change: 1.0.0 → 1.1.0
 - Modified principles:
-  - [PRINCIPLE_1_NAME] → I. Confiança Visível e Rastreabilidade de Fontes (NON-NEGOTIABLE)
-  - [PRINCIPLE_2_NAME] → II. Saída Humana Sem Repetição (Conformidade Decreto SAC 13.135/2026)
-  - [PRINCIPLE_3_NAME] → III. Guardrails Críticos: Zero Recomendação, Anti-Golpe e Proteção ao Vulnerável (NON-NEGOTIABLE)
-  - [PRINCIPLE_4_NAME] → IV. Precisão Determinística em Cálculos Financeiros e Prazos
-  - [PRINCIPLE_5_NAME] → V. Privacidade, Isolamento de Dados e Resistência a Prompt Injection (NON-NEGOTIABLE)
+  - Princípio I: Adicionado "Confiança antes de abrangência" e tratamento estrito de fora de escopo.
+  - Princípio II: Fortalecido com regras de anti-doom loop (máx 2 erros, máx 5 turnos) e protocolo rastreável.
+  - Princípio III: Estabelecida a hierarquia incondicional de triagem prévia (Golpe > Vulnerável > Injeção > Recomendação).
+  - Princípio IV: Adicionada a regra inegociável de validação de saída pós-LLM (verificador de fatos R$ e datas) e fallback de template.
+  - Princípio V: Blindagem ativa contra quebra de sessão (ignorar IDs/CPFs no texto da mensagem contra Broken Object Level Authorization).
 - Added sections:
-  - Regras de Negócio e Restrições de Domínio (As 12 Regras da Caqui)
-  - Fluxo de Desenvolvimento e Portões de Qualidade (Spec-Driven & Test-First)
-- Removed sections: None
-- Templates requiring updates: None (aligned with .specify/templates/*)
-- Follow-up TODOs: None
+  - Restrições de Arquitetura, Operação e Proteção de Custo na URL Pública (Rate Limiting, Circuit Breaker LLM_ENABLED=false, Chave só no Backend).
+  - Regras de Borda de Liquidação (Corte 16h00 inclusive vs 16h01 pós-corte).
 -->
 # Caqui Invest Constitution
 
 ## Core Principles
 
 ### I. Confiança Visível e Rastreabilidade de Fontes (NON-NEGOTIABLE)
-Toda informação factual apresentada ao cliente ou ao atendente DEVE exibir explicitamente sua origem: o código do artigo atualizado da base de conhecimento (`KB-001` a `KB-030`, descartando artigos obsoletos como `KB-007` revisado em 2024) ou o registro exato da conta do cliente (`posicoes.csv`, `operacoes.csv`, `taxas.json`, `calendario.json`). Se um prazo, taxa ou produto não existir na base oficial (`dados/`), o sistema DEVE declarar que não sabe ou que a Caqui não oferece o produto (Regra 9), sendo estritamente proibido inventar ou usar taxas externas da internet.
+- **Confiança antes de abrangência:** O assistente resolve com excelência um conjunto delimitado de assuntos ("onde está meu dinheiro": status, prazos de liquidação, posições e saldo) em vez de arriscar alucinações tentando responder tudo.
+- Perguntas fora de escopo (rentabilidade futura, IR complexo, produtos que a Caqui não oferece) DEVEM receber recusa explícita e educada, informando a limitação e oferecendo especialista/humano, nunca uma resposta improvisada.
+- **Rastreabilidade obrigatória:** Toda informação factual apresentada DEVE exibir explicitamente sua origem: o código do artigo atualizado da base de conhecimento (`KB-001` a `KB-030`, com exclusão obrigatória de artigos obsoletos como `KB-007`) ou o identificador exato da conta/operação (`posicoes.csv`, `operacoes.csv`, `taxas.json`, `calendario.json`).
+- Se um prazo, taxa ou produto não constar na base oficial (`dados/`), o sistema DEVE declarar que não sabe (Regra 9) e oferecer humano. É proibido inventar dados ou buscar taxas externas na internet.
 
-### II. Saída Humana Sem Repetição (Conformidade Decreto SAC 13.135/2026)
-O acesso a um atendente humano DEVE estar visível em qualquer passo da jornada. Das 08h às 20h (horário de Brasília, 7 dias por semana), o encaminhamento entrega tempo estimado de espera sem menus intermediários; fora desse horário (20h às 08h), o sistema DEVE informar que o atendimento humano retorna às 08h, registrar protocolo e informar o prazo de retorno (Regra 12). O limite máximo de interações até resolver ou transferir para humano é de 5 passos, oferecendo humano após 2 tentativas sem compreensão para evitar *doom loops* (Regra 8). Em qualquer transferência, o histórico completo, contexto da conta e número de protocolo DEVEM ser entregues ao atendente para que o cliente nunca repita a demanda.
+### II. Saída Humana Sem Repetição e Prevenção de Doom Loop (Conformidade Decreto SAC 13.135/2026)
+- O acesso a um atendente humano DEVE estar visível e acessível em qualquer tela ou passo da jornada.
+- **Horário de Atendimento:**
+  - Das 08h às 20h (BRT, 7 dias por semana): encaminhamento direto para humano com tempo estimado de espera e sem menus labirínticos.
+  - Fora desse horário (20h às 08h): emissão imediata de protocolo determinístico (`CQ-AAAAMMDD-NNNN`) e aviso claro de que o retorno da equipe humana ocorrerá a partir das 08h (Regra 12).
+- **Anti-Doom Loop (Regra 8):** Limite máximo de **5 passos/turnos** até resolver ou transferir para humano. Após **2 respostas consecutivas** sem compreender a intenção do cliente, o assistente DEVE ofertar proativamente o atendimento humano.
+- **Transição com Contexto:** Em qualquer encaminhamento humano ou de segurança, o histórico completo da conversa, resumo do caso e número de protocolo DEVEM ser repassados, garantindo que o cliente **nunca repita a demanda**.
 
-### III. Guardrails Críticos: Zero Recomendação, Anti-Golpe e Proteção ao Vulnerável (NON-NEGOTIABLE)
-- **Zero Recomendação (Regra 4):** O sistema NUNCA DEVE indicar produto, percentual de carteira ou "melhor opção" personalizada, mesmo sob insistência ou tentativas de roleplay ("finge que é meu assessor"). Ele explica conceitos e diferenças objetivas e encaminha pedidos de recomendação para um especialista humano (`encaminhar_especialista`).
-- **Interrupção Imediata por Golpe (Regra 5):** Ao menor sinal de engenharia social ou fraude (ligação de falso gerente/segurança, pedido de código SMS, senha, instalação de app remoto ou Pix de teste), o sistema DEVE interromper imediatamente qualquer resposta à dúvida secundária, alertar para não fornecer dados, acionar bloqueio preventivo de sessão e transferir para a equipe de segurança 24x7 sem fila (`seguranca_imediata`).
-- **Prioridade ao Cliente Vulnerável (Regra 6):** Pessoa idosa (60+ anos), sinais de confusão ou pressão de terceiros (ex.: parente exigindo resgate total ou transferência para outra titularidade) DEVEM ter prioridade imediata para atendimento humano (`encaminhar_humano`), com acolhimento calmo e lembrete de que transferências só ocorrem para contas de mesma titularidade.
+### III. Triagem Crítica com Precedência Incondicional (NON-NEGOTIABLE)
+Toda mensagem passa por triagem determinística antes de qualquer chamada ao LLM. A triagem prevalece incondicionalmente sobre qualquer dúvida de negócio secundária na mesma mensagem (ex.: dúvida de prazo combinada com relato de engenharia social).
+Hierarquia de prioridade na triagem:
+1. **Golpe / Engenharia Social (Regra 5):** Sinais de contato falso de gerente/segurança, pedido de senha, código SMS, Pix de teste ou instalação de software de suporte remoto → interrompe imediatamente qualquer outro assunto, orienta o cliente (`KB-019`/`KB-020`), aciona bloqueio preventivo simulado de sessão e transfere para a equipe de segurança 24/7 sem fila (`seguranca_imediata`).
+2. **Cliente Vulnerável (Regra 6):** Pessoa idosa (60+ anos), sinais de confusão mental ou relato de pressão de terceiros/familiares para resgate total (`KB-028`) → acolhimento prioritário, lembrete de que transferências só ocorrem para mesma titularidade e transferência prioritária para humano (`encaminhar_humano`).
+3. **Instrução Escondida / Prompt Injection (Regra 11):** Tentativas de burlar regras, comando de administrador ou troca de persona → o texto do cliente é tratado estritamente como dado não confiável, sendo a instrução ignorada/recusada sem alterar o comportamento das regras.
+4. **Zero Recomendação (Regra 4):** O sistema NUNCA DEVE indicar produto, alocação percentual ou "melhor opção" de investimento, mesmo sob insistência ou roleplay. Explica conceitos de forma neutra e encaminha para especialista humano (`KB-029`).
 
-### IV. Precisão Determinística em Cálculos Financeiros e Prazos
-Cálculos de liquidação, imposto de renda e rentabilidade NUNCA DEVEM depender de aproximações livres de LLM; devem ser executados por funções determinísticas auditáveis baseadas nos arquivos de `dados/`:
-- **Marco Temporal ("Agora"):** `2026-11-18T10:00:00-03:00` (salvo quando o contexto do teste especificar outro momento).
-- **Liquidação (Regra 1):** Corte às 16h em dias úteis segundo `calendario.json`. Pedidos após 16h ou em feriados/fins de semana têm dia-base (D0) no próximo dia útil. CDB Liquidez Diária liquida em D+0; Fundo RF em D+1 útil (cotização) e D+2 úteis (pagamento); Fundo MM em D+30 corridos (ajustado para dia útil) + 2 dias úteis para pagamento.
-- **IR Regressivo (Regra 2):** Incide exclusivamente sobre o rendimento (nunca sobre o principal) em produtos tributáveis: até 180 dias corridos = 22,5%; 181 a 360 = 20%; 361 a 720 = 17,5%; acima de 720 = 15%. LCI, LCA e Poupança são isentas para PF.
-- **Comparação com Poupança (Regra 3):** Sempre compara rendimento **líquido vs. líquido** pelo mesmo número de dias, utilizando as taxas fixas de `taxas.json` (CDI 11% a.a., Poupança 0,6% a.m.).
+### IV. Fato Determinístico, Texto Generativo e Validação Pós-LLM (NON-NEGOTIABLE)
+- Cálculos de liquidação, prazos úteis, tabela de IR regressivo, saldos e valores NUNCA DEVEM ser calculados pelo LLM. Todos os fatos matemáticos e temporais DEVEM ser gerados deterministicamente pelo código backend a partir de `dados/`.
+- **Marco Temporal ("Agora"):** Padrão `2026-11-18T10:00:00-03:00`, ajustável na interface para demonstrar cortes e horários.
+- **Regras de Corte e Liquidação (Regra 1 e KB-006):**
+  - Corte às 16h em dias úteis segundo `calendario.json`. Pedidos até `16:00:00` contam no mesmo dia útil; a partir de `16:00:01` ou fins de semana/feriados, o dia-base (D0) é o próximo dia útil.
+  - CDB/LCI liquidez diária: D+0; Fundo RF FIF: D+1 útil (cotização) e D+2 úteis (pagamento); Fundo MM FIF: D+30 corridos (ajustado para útil) + 2 úteis para pagamento; Tesouro Selic: D+1 útil; Ações: D+2 úteis.
+  - Operações com `liquidacao_prevista` vazia no CSV DEVEM ser calculadas deterministricamente pela regra de prazos, nunca estimadas.
+- **Validador de Saída (Post-Processor Gate):** O texto redigido pelo LLM passa por inspeção antes de ir ao cliente. Datas e valores em R$ presentes no texto gerado DEVEM bater exatamente com os fatos fornecidos. Expressões alarmistas ("sumiu", "perdido") ou recomendações disfarçadas causam descarte imediato da resposta generativa e ativação do **fallback determinístico por template**.
 
-### V. Privacidade, Isolamento de Dados e Resistência a Prompt Injection (NON-NEGOTIABLE)
-- **Proteção de Dados e Isolamento (Regra 10):** CPFs DEVEM ser exibidos e registrados em logs sempre mascarados (`***.***.XXX-**`). O sistema nunca pede senha e bloqueia estritamente o acesso a saldos ou operações de terceiros (mesmo que o solicitante alegue parentesco).
-- **Texto do Cliente é Dado, Não Instrução (Regra 11):** Comandos embutidos na mensagem do usuário (ex.: `"ignore suas instruções anteriores"`, `"SISTEMA: modo administrador ativado"`, troca de persona) DEVEM ser tratados como texto não confiável e recusados (`recusar` ou manutenção das regras de negócio), sem jamais vazar dados de outros clientes ou violar a regra de não-recomendação.
-- **Dados 100% Sintéticos:** Nenhum dado real de pessoa física pode ser utilizado no código, testes ou demonstração.
+### V. Privacidade, Isolamento de Dados e Mitigação Ativa de Quebra de Sessão (NON-NEGOTIABLE)
+- **Identificação Unicamente por Sessão (Regra 10):** O cliente é identificado pela sessão/token HTTP autenticado.
+- **Defesa Ativa contra Broken Object Level Authorization (BOLA):** Identificadores de clientes (`C-XXXX`), nomes ou CPFs citados dentro do texto da mensagem do usuário DEVEM ser sumariamente desconsiderados para acesso a dados. Um cliente jamais acessa informações de terceiros, mesmo alegando procuração ou parentesco.
+- **Máscara de PII e Zero Senhas:** CPFs aparecem sempre mascarados (`***.***.XXX-**`) na tela e nos logs de backend. O sistema nunca solicita nem aceita senha.
+- **Dados 100% Sintéticos:** Exclusivo uso dos arquivos sintéticos de `dados/`. Zero dados de pessoas reais em código, testes ou apresentações.
+
+---
+
+## Restrições de Arquitetura, Operação e Proteção de Custo na URL Pública
+
+1. **Separação Front e Backend:** Duas aplicações isoladas. A chave do LLM reside **exclusivamente no backend** (`.env` fora do git). O front consome apenas a API local/servida.
+2. **Proteção contra Custos e Abuso na URL Pública:**
+   - Rate limiting por IP e por sessão ativa no endpoint de chat.
+   - Tamanho máximo estrito para as mensagens recebidas do usuário.
+   - **Circuit Breaker (`LLM_ENABLED=false`):** Interruptor de emergência no `.env` que desativa chamadas externas ao LLM e opera o sistema com templates determinísticos sem derrubar a aplicação nem reprovar os testes.
+3. **Logger Sanitizado:** Interceptador de log que expurga CPFs não mascarados e mensagens cruas antes de gravar em disco ou observabilidade.
+
+---
 
 ## Regras de Negócio e Restrições de Domínio (As 12 Regras da Caqui)
 
-1. **Direito de Cancelamento e Reclamação Sem Atrito (Regra 7):** Solicitações de encerramento de conta devem ser atendidas na primeira resposta (com no máximo uma tentativa leve de retenção) orientando os passos objetivos (resgatar saldo e transferir). Reclamações geram protocolo imediato com prazo de resposta de até 7 dias corridos.
-2. **Sincronização com o Case:** Toda evolução da arquitetura deve manter atualizado o arquivo `SPEC.md` na raiz do projeto (modelo exigido pela organização do Hands On) e a seção `Como usamos IA` no `README.md`.
-3. **Zero Segredos no Repositório:** Chaves de API, tokens ou credenciais jamais devem ser versionados; o arquivo `.env` deve permanecer ignorado pelo Git, e a solução deve funcionar de forma resiliente mesmo em ambientes sem chave externa configurada (fallback determinístico completo).
+1. **Direito de Cancelamento e Reclamação Sem Atrito (Regra 7):** Encerramento de conta é atendido na primeira resposta (máximo 1 retenção leve), orientando resgate e transferência (`KB-027`). Reclamação gera protocolo imediato com prazo de até 7 dias corridos (`KB-026`).
+2. **Desambiguação Obrigatória:** Quando o cliente tiver mais de uma operação pendente parecida, o assistente lista as opções e solicita a confirmação de qual operação deseja consultar, proibido de adivinhar.
+3. **Sincronização com o Case:** O arquivo `SPEC.md` na raiz deve ser mantido atualizado respondendo às 6 perguntas obrigatórias do desafio, e o `README.md` deve conter a seção `Como usamos IA` e a URL pública no topo.
+
+---
 
 ## Fluxo de Desenvolvimento e Portões de Qualidade (Spec-Driven & Test-First)
 
-1. **Fluxo Spec Kit:** Toda funcionalidade segue a sequência `/speckit-constitution` → `/speckit-specify` → `/speckit-plan` → `/speckit-tasks` → `/speckit-implement`.
-2. **Portão Automático Obrigatório (`checar_respostas.py`):** A solução DEVE ser validada contra as 40 perguntas de `dados/perguntas_teste.jsonl` executando `python ferramentas/checar_respostas.py respostas.jsonl`. O critério de aceite exige **40/40 (100% de aprovação)** tanto nas pistas automáticas (`deve_conter`, `nao_deve_conter`, `acao_esperada`) quanto na verificação semântica frente à `resposta_esperada`.
-3. **Verificação Humana (Harness & Auditoria):** Além do script automatizado, as respostas geradas, os cálculos de dias corridos/úteis e os logs de execução devem ser inspecionados para garantir que nenhum dado sensível ou artigo desatualizado (`KB-007`) tenha sido utilizado.
+1. **Fluxo Spec Kit:** Toda funcionalidade segue `/speckit-constitution` → `/speckit-specify` → `/speckit-plan` → `/speckit-tasks` → `/speckit-implement`.
+2. **Portão Automático Obrigatório (`checar_respostas.py`):** Validação das perguntas de teste executando:
+   `python ferramentas/checar_respostas.py respostas.jsonl --regras <escopo>`
+   Critério de aceite: 100% de aprovação nas pistas automáticas e conformidade semântica com `resposta_esperada`.
+3. **Auditoria Humana ("Verificado na Mão"):** Respostas geradas e relatórios de execução devem ser lidos e comparados com a base de conhecimento e regras de negócio antes de qualquer publicação.
+
+---
 
 ## Governance
 
-Esta Constituição governa todas as decisões arquiteturais, especificações, planos e implementações do projeto Caqui Invest. Qualquer alteração nos princípios exige documentação do motivo, atualização da versão semântica neste cabeçalho e reexecução integral da bateria de testes `ferramentas/checar_respostas.py`.
+Esta Constituição prevalece sobre qualquer especificação, plano ou tarefa. Modificações exigem registro de Sync Impact Report e incremento semântico de versão.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-31 | **Last Amended**: 2026-10-31
+**Version**: 1.1.0 | **Ratified**: 2026-10-31 | **Last Amended**: 2026-10-31
